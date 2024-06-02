@@ -28,21 +28,19 @@ def apply_watermark_to_bbox(image, bbox, watermark):
     # 워터마크를 바운딩 박스의 크기에 맞게 조정
     scaled_watermark = cv2.resize(watermark, (bbox_width, bbox_height))
     
-    # 워터마크를 바운딩 박스의 위치에 적용
+    # 바운딩 박스의 시작과 끝 좌표 계산
     start_x = max(x_min, 0)
     start_y = max(y_min, 0)
-    end_x = min(start_x + scaled_watermark.shape[1], image.shape[1])
-    end_y = min(start_y + scaled_watermark.shape[0], image.shape[0])
+    end_x = min(x_max, image.shape[1])
+    end_y = min(y_max, image.shape[0])
     
-    # 워터마크 적용
+    # 바운딩 박스의 유효한 부분에 워터마크 적용
     for i in range(start_y, end_y):
         for j in range(start_x, end_x):
             pixel = image[i, j]
             watermark_pixel = scaled_watermark[i - start_y, j - start_x]
-            if watermark_pixel.any() != 0:
-              image[i, j] = watermark_pixel
-            else:
-              image[i, j] = pixel
+            if watermark_pixel.any() != 0:  # 워터마크 픽셀 값이 0이 아닌 경우에만 적용
+                image[i, j] = watermark_pixel
 
     return image
 
