@@ -18,46 +18,31 @@ def get_image_creation_date(image_path):
         return datetime.strptime(date_input, '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')
 
 # 디지털 워터마크 생성 및 LSB 스테가노그래피 적용 #
-def apply_watermark_to_bboxes(image, bboxes, watermark):
-    watermark_binary = ''.join([format(ord(i), '08b') for i in watermark])
-    watermark_length = len(watermark_binary)
-    idx = 0
-
-    for bbox in bboxes:
-        x_min, y_min, x_max, y_max, confidence, class_ = bbox
-        # 바운딩 박스의 중심 좌표 계산
-        center_x = (x_max + x_min) // 2
-        center_y = (y_max + y_min) // 2
-        
-        # 바운딩 박스의 너비와 높이 계산
-        bbox_width = x_max - x_min
-        bbox_height = y_max - y_min
-        
-        # 워터마크의 크기 조정
-        watermark_scale = min(bbox_width, bbox_height) / 100  # 바운딩 박스 크기에 따른 워터마크 크기 조정 비율
-        scaled_watermark = cv2.resize(watermark, None, fx=watermark_scale, fy=watermark_scale)
-        watermark_binary = ''.join([format(ord(i), '08b') for i in scaled_watermark])
-        watermark_length = len(watermark_binary)
-        
-        # 워터마크를 바운딩 박스의 중심에 적용
-        start_x = max(center_x - scaled_watermark.shape[1] // 2, 0)
-        start_y = max(center_y - scaled_watermark.shape[0] // 2, 0)
-        end_x = min(start_x + scaled_watermark.shape[1], image.shape[1])
-        end_y = min(start_y + scaled_watermark.shape[0], image.shape[0])
-        
-        # 워터마크 적용
-        for i in range(start_y, end_y):
-            for j in range(start_x, end_x):
-                if idx < watermark_length:
-                    pixel = image[i, j]
-                    pixel_value = format(pixel, '08b')
-                    modified_pixel_value = pixel_value[:-1] + watermark_binary[idx]
-                    image[i, j] = int(modified_pixel_value, 2)
-                    idx += 1
-                else:
-                    break
-            if idx >= watermark_length:
-                break
+def apply_watermark_to_bbox(image, bbox, watermark):
+    x_min, y_min, x_max, y_max, confidence, class_ = bbox
+    
+    # 바운딩 박스의 너비와 높이 계산
+    bbox_width = x_max - x_min
+    bbox_height = y_max - y_min
+    
+    # 워터마크를 바운딩 박스의 크기에 맞게 조정
+    scaled_watermark = cv2.resize(watermark, (bbox_width, bbox_height))
+    
+    # 워터마크를 바운딩 박스의 위치에 적용
+    start_x = max(x_min, 0)
+    start_y = max(y_min, 0)
+    end_x = min(start_x + scaled_watermark.shape[1], image.shape[1])
+    end_y = min(start_y + scaled_watermark.shape[0], image.shape[0])
+    
+    # 워터마크 적용
+    for i in range(start_y, end_y):
+        for j in range(start_x, end_x):
+            pixel = image[i, j]
+            watermark_pixel = scaled_watermark[i - start_y, j - start_x]
+            if watermark_pixel.any() != 0:
+              image[i, j] = watermark_pixel
+            else:
+              image[i, j] = pixel
 
     return image
 
@@ -66,20 +51,20 @@ def embed_watermark(author_name, image_path, output_path):
     application_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S') # 디지털 워터마크 적용 날짜 및 시간 추출 
     watermark_data = f"{author_name}|{creation_date}|{application_date}" # main()에서 입력받은 저작권자명 포함 watermark_data 생성
     
-    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE) # 지정된 파일 경로에서 이미지 읽기
-    partially_watermarked_image = apply_watermark_to_bboxes(np.copy(img), watermark_data) # LSB스테가노그래피 적용 함수 호출하여 원본 이미지의 복사본에 초기 워터마크 데이터 적용
-    image_hash = hashlib.sha256(partially_watermarked_image.tobytes()).hexdigest() # 초기 워터마크가 적용된 이미지의 해시값 계산
+    img = cv2.imread(image_path, cv2.IMREAD_COLOR) # 지정된 파일 경로에서 컬러 이미지 읽기
+    bboxes = [(100, 100, 200, 200, 0.9, 'person')]  # 바운딩 박스 정보 (임시로 예시를 넣었습니다)
+    watermark = np.random.randint(0, 2, (50, 50, 3), dtype=np.uint8) * 255  # 임의의 워터마크 생성 (50x50 크기의 컬러 이미지)
     
-    full_watermark = f"{watermark_data}|{image_hash}" # 초기 워터마크 데이터와 계산된 해시값을 결합하여 full_watermark 생성
-    fully_watermarked_image = apply_watermark_to_bboxes(np.copy(img), full_watermark) # LSB스테가노그래피 적용 함수 호출하여 원본 이미지의 복사본에 최종 워터마크 적용
-    
-    cv2.imwrite(output_path, fully_watermarked_image) # 최종적으로 워터마크가 적용된 이미지를 사용자가 지정한 경로(output_path)에 저장
+    for bbox in bboxes:
+        img = apply_watermark_to_bbox(img, bbox, watermark) # 바운딩 박스에 워터마크 적용
+
+    cv2.imwrite(output_path, img) # 최종적으로 워터마크가 적용된 이미지를 사용자가 지정한 경로(output_path)에 저장
 
 # 사용자 입력과 프로그램 실행 #
 def main():
     author_name = input("저작권자명을 입력해주세요: ")
     image_path = input("대상 이미지 파일 경로를 입력해주세요: ")
-    output_path = input("워터마크가 적용된 이미지를 저장할 경로를 입력해주세요: ")
+    output_path = input("워터마크가 적용된 이미지를 저장할 경로를 입력해주세요(확장자 포함): ")
     embed_watermark(author_name, image_path, output_path)
     print("워터마크 적용이 완료되었습니다.")
 
